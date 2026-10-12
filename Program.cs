@@ -166,3 +166,8 @@ orchestrationGroup.MapPost("/approvals/approve", async (
 
 app.Run();
 
+/// <summary>
+/// Exposes the implicit Program entry point so integration tests can host the app via WebApplicationFactory.
+/// </summary>
+public partial class Program;
+
