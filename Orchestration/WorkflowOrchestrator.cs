@@ -6,6 +6,7 @@ namespace CharlesSchwabAssessment.Orchestration
         WorkflowTemplateFactory templateFactory,
         IWorkflowPolicyGuardrail policyGuardrail,
         IApprovalService approvalService,
+        IAgentDecisionEngine agentDecisionEngine,
         TimeProvider timeProvider,
         ILogger<WorkflowOrchestrator> logger) : IWorkflowOrchestrator
     {
@@ -26,11 +27,6 @@ namespace CharlesSchwabAssessment.Orchestration
                 StartedAtUtc = startedAtUtc
             };
 
-            if (request.AmbiguousRequirement)
-            {
-                context.SetArtifact("requiresHumanClarification", true);
-            }
-
             var snapshot = new WorkflowSnapshot
             {
                 WorkflowId = workflowId,
@@ -46,6 +42,19 @@ namespace CharlesSchwabAssessment.Orchestration
                     StartedAtUtc = startedAtUtc
                 }
             };
+
+            if (request.AmbiguousRequirement)
+            {
+                context.SetArtifact("requiresHumanClarification", true);
+
+                var agentDecision = await agentDecisionEngine.EvaluateAmbiguousRequirementAsync(request.Requirement, cancellationToken);
+                context.SetArtifact("agent.ambiguity.recommendation", agentDecision.Recommendation);
+                AddAudit(
+                    snapshot,
+                    "agent-decision",
+                    $"Agent evaluated ambiguous requirement -> {agentDecision.Recommendation} (confidence={agentDecision.Confidence:P0}): {agentDecision.Rationale}",
+                    "requirements");
+            }
 
             var state = new WorkflowRuntimeState(definition, snapshot);
             _runs[workflowId] = state;
@@ -258,6 +267,16 @@ namespace CharlesSchwabAssessment.Orchestration
                 var approved = await approvalService.IsApprovedAsync(state.Snapshot.WorkflowId, node.Id, cancellationToken);
                 if (!approved)
                 {
+                    var agentDecision = await agentDecisionEngine.EvaluateHighImpactNodeAsync(state.Snapshot.Context, node, cancellationToken);
+                    lock (state.Gate)
+                    {
+                        AddAudit(
+                            state.Snapshot,
+                            "agent-decision",
+                            $"Agent evaluated high-impact node '{node.Id}' -> {agentDecision.Recommendation} (confidence={agentDecision.Confidence:P0}): {agentDecision.Rationale}",
+                            node.Id);
+                    }
+
                     var approval = await approvalService.CreateAsync(state.Snapshot.WorkflowId, node.Id, "High-impact change requires human sign-off.", cancellationToken);
                     lock (state.Gate)
                     {

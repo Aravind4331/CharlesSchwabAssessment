@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using CharlesSchwabAssessment.Models;
 using CharlesSchwabAssessment.Orchestration;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace CharlesSchwabAssessment.Tests;
@@ -10,9 +11,28 @@ namespace CharlesSchwabAssessment.Tests;
 [TestClass]
 public class ApiIntegrationTests
 {
+    private const string TestApiKey = "test-orchestration-key";
+
     private static WebApplicationFactory<Program> CreateFactory()
     {
-        return new WebApplicationFactory<Program>();
+        return new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureAppConfiguration((_, configBuilder) =>
+                {
+                    configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        ["Security:OrchestrationApiKey"] = TestApiKey
+                    });
+                });
+            });
+    }
+
+    private static HttpClient CreateAuthorizedClient(WebApplicationFactory<Program> factory, bool allowAutoRedirect = true)
+    {
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = allowAutoRedirect });
+        client.DefaultRequestHeaders.Add("X-Api-Key", TestApiKey);
+        return client;
     }
 
     [TestMethod]
@@ -85,7 +105,7 @@ public class ApiIntegrationTests
     public async Task OrchestrationRuns_StartAndFetchSnapshot_Succeeds()
     {
         await using var factory = CreateFactory();
-        using var client = factory.CreateClient();
+        using var client = CreateAuthorizedClient(factory);
 
         var startResponse = await client.PostAsJsonAsync("/api/orchestration/runs", new WorkflowRunRequest
         {
@@ -101,5 +121,65 @@ public class ApiIntegrationTests
 
         var snapshotResponse = await client.GetAsync($"/api/orchestration/runs/{run.WorkflowId}");
         Assert.AreEqual(HttpStatusCode.OK, snapshotResponse.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task OrchestrationRuns_WithoutApiKey_ReturnsUnauthorized()
+    {
+        await using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/orchestration/runs", new WorkflowRunRequest
+        {
+            WorkflowName = "Unauthorized Attempt",
+            Requirement = "Should be rejected",
+            HighImpactChange = false,
+            AmbiguousRequirement = false
+        });
+
+        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task OrchestrationRuns_WithInvalidApiKey_ReturnsUnauthorized()
+    {
+        await using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Api-Key", "wrong-key");
+
+        var response = await client.PostAsJsonAsync("/api/orchestration/runs", new WorkflowRunRequest
+        {
+            WorkflowName = "Unauthorized Attempt",
+            Requirement = "Should be rejected",
+            HighImpactChange = false,
+            AmbiguousRequirement = false
+        });
+
+        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task Approvals_WithoutApiKey_ReturnsUnauthorized()
+    {
+        await using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/api/orchestration/approvals");
+
+        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task UrlShortenerEndpoints_DoNotRequireApiKey()
+    {
+        await using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/urls", new ShortenUrlRequest
+        {
+            Url = "https://example.com/no-auth-needed"
+        });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
     }
 }
