@@ -1,3 +1,6 @@
 <Solution>
   <Project Path="CharlesSchwabAssessment.csproj" />
+  <Project Path="CharlesSchwabAssessment.Tests/CharlesSchwabAssessment.Tests.csproj">
+    <Build Solution="Debug|*" Project="false" />
+  </Project>
 </Solution>

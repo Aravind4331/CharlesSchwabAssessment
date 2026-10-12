@@ -7,4 +7,11 @@
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Compile Remove="CharlesSchwabAssessment.Tests\**\*.cs" />
+    <Content Remove="CharlesSchwabAssessment.Tests\**\*" />
+    <EmbeddedResource Remove="CharlesSchwabAssessment.Tests\**\*" />
+    <None Remove="CharlesSchwabAssessment.Tests\**\*" />
+  </ItemGroup>
+
 </Project>

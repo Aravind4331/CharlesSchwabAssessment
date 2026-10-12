@@ -71,6 +71,14 @@ namespace CharlesSchwabAssessment.Orchestration
                 };
             }
 
+            lock (state.Gate)
+            {
+                if (state.Snapshot.Status == WorkflowStatus.WaitingForApproval)
+                {
+                    state.Snapshot.Status = WorkflowStatus.Running;
+                }
+            }
+
             return await ExecuteUntilWaitOrCompletionAsync(state, cancellationToken);
         }
 
@@ -159,6 +167,8 @@ namespace CharlesSchwabAssessment.Orchestration
                     message = "Workflow safely stopped.";
                     break;
                 }
+
+                await RefreshApprovedWaitingNodesAsync(state, cancellationToken);
 
                 var readyNodes = GetReadyNodes(state.Definition, state.Snapshot.NodeStatuses);
                 if (readyNodes.Count == 0)
@@ -361,6 +371,32 @@ namespace CharlesSchwabAssessment.Orchestration
                 state.Snapshot.Status = WorkflowStatus.RolledBack;
                 AddAudit(state.Snapshot, "rollback", $"Rollback executed for node '{node.Id}'.", node.Id);
                 CompleteMetrics(state.Snapshot);
+            }
+        }
+
+        private async Task RefreshApprovedWaitingNodesAsync(WorkflowRuntimeState state, CancellationToken cancellationToken)
+        {
+            var waitingNodes = state.Snapshot.NodeStatuses
+                .Where(pair => pair.Value == NodeStatus.WaitingForApproval)
+                .Select(pair => pair.Key)
+                .ToArray();
+
+            foreach (var nodeId in waitingNodes)
+            {
+                if (!await approvalService.IsApprovedAsync(state.Snapshot.WorkflowId, nodeId, cancellationToken))
+                {
+                    continue;
+                }
+
+                lock (state.Gate)
+                {
+                    if (state.Snapshot.NodeStatuses.TryGetValue(nodeId, out var status) && status == NodeStatus.WaitingForApproval)
+                    {
+                        state.Snapshot.NodeStatuses[nodeId] = NodeStatus.Pending;
+                        state.Snapshot.Context.SetNodeStatus(nodeId, NodeStatus.Pending);
+                        AddAudit(state.Snapshot, "approval-granted", $"Approval granted for node '{nodeId}'.", nodeId);
+                    }
+                }
             }
         }
 
