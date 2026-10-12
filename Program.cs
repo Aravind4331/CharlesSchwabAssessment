@@ -1,7 +1,10 @@
 using CharlesSchwabAssessment.Components;
 using CharlesSchwabAssessment.Models;
 using CharlesSchwabAssessment.Orchestration;
+using CharlesSchwabAssessment.Security;
 using CharlesSchwabAssessment.Services;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,6 +25,25 @@ builder.Services.AddSingleton<CharlesSchwabAssessment.Orchestration.WorkflowTemp
 // Register policy guardrail implementation
 builder.Services.AddSingleton<IWorkflowPolicyGuardrail, DefaultWorkflowPolicyGuardrail>();
 
+// Register agent decision engine used for judgment-based orchestration steps.
+builder.Services.AddSingleton<IAgentDecisionEngine, HeuristicAgentDecisionEngine>();
+
+// Secure the orchestration/approval API surface with an API key scheme.
+// Production deployments should replace this with a proper identity provider.
+builder.Services.AddAuthentication(ApiKeyAuthenticationOptions.DefaultScheme)
+    .AddScheme<ApiKeyAuthenticationOptions, ApiKeyAuthenticationHandler>(
+        ApiKeyAuthenticationOptions.DefaultScheme,
+        options =>
+        {
+            options.ApiKey = builder.Configuration["Security:OrchestrationApiKey"] ?? string.Empty;
+        });
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("OrchestrationAccess", policy =>
+        policy.RequireAuthenticatedUser()
+              .AddAuthenticationSchemes(ApiKeyAuthenticationOptions.DefaultScheme));
+});
+
 var app = builder.Build();
 
 
@@ -32,8 +54,13 @@ if (!app.Environment.IsDevelopment())
     // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
-app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
+app.UseWhen(
+    context => !context.Request.Path.StartsWithSegments("/api"),
+    branch => branch.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true));
 app.UseHttpsRedirection();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.UseAntiforgery();
 
@@ -90,7 +117,8 @@ app.MapGet("/api/urls/{code}/analytics", async (
     return analytics is null ? Results.NotFound() : Results.Ok(analytics);
 });
 
-var orchestrationGroup = app.MapGroup("/api/orchestration");
+var orchestrationGroup = app.MapGroup("/api/orchestration")
+    .RequireAuthorization("OrchestrationAccess");
 
 orchestrationGroup.MapPost("/runs", async (
     WorkflowRunRequest request,

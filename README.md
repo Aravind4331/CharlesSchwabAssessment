@@ -26,6 +26,22 @@ dotnet restore
 dotnet run
 ```
 
+## Test
+
+```bash
+dotnet test
+```
+
+See [docs/TESTING.md](docs/TESTING.md) for the full testing approach,
+limitations, and trade-offs.
+
+## Documentation
+
+- [Architecture Overview](docs/ARCHITECTURE.md)
+- [Scenarios (greenfield, brownfield, ambiguous)](docs/SCENARIOS.md)
+- [Testing Approach, Limitations, Trade-offs](docs/TESTING.md)
+- [Final Engineering Summary](docs/FINAL_ENGINEERING_SUMMARY.md)
+
 ## Main Endpoints
 
 ### URL Shortener

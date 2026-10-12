@@ -171,6 +171,7 @@ public class WorkflowOrchestratorTests
             new WorkflowTemplateFactory(timeProvider),
             new DefaultWorkflowPolicyGuardrail(),
             approvalService,
+            new HeuristicAgentDecisionEngine(),
             timeProvider,
             NullLogger<WorkflowOrchestrator>.Instance);
     }
